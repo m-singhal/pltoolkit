@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "PLToolkit: Photoluminescence Toolkit for Phonon-Assisted Spectra"
+authors:
+  - family-names: "Mridul"
+    given-names: ""
+version: "0.1.0"
+date-released: 2026-01-28
+repository-code: "https://github.com/m-singhal/pltoolkit"
+license: "MIT"
+keywords:
+  - photoluminescence
+  - phonons
+  - huang-rhys
+  - franck-condon
+  - anharmonicity
+  - defects
+  - vasp

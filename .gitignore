@@ -1,0 +1,28 @@
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Packaging
+*.egg-info/
+build/
+dist/
+
+# Virtual environments
+venv/
+.env/
+.env*/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs and outputs
+*.log
+*.out
+
+# Large data / generated files (optional)
+*.npy
+*.npz
