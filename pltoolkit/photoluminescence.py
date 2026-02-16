@@ -165,6 +165,7 @@ class Photoluminescence(ReadFiles):
     """
     Define all the variables by reading the input files like POSCAR_GS/CONTCAR_GS, POSCAR_ES/CONTCAR_ES, and band.yaml.
     """
+    self.hbar = 0.6582*np.sqrt(9.646) #sqrt(meV*AMU)*Angstrom
     super().__init__()
 
   def IV(self, iv_low, iv_high, rv_high):
@@ -284,7 +285,7 @@ class Photoluminescence(ReadFiles):
     as used in previous function.
     """
     masses = np.sqrt(masses)
-    F_diff = F_es - F_gs
+    F_diff = (F_es - F_gs)
     mF_diff = np.array([(1/masses[i])*F_diff[i,:] for i in range(len(masses))])
     qk = np.array([np.sum(mF_diff*modes[i,:,:]) for i in range(modes.shape[0])])
     qk = (1/Ek**2)*qk*4180.069
@@ -365,6 +366,17 @@ class Photoluminescence(ReadFiles):
     IPR = 1/np.einsum("ij -> i", p**2)
     return IPR
   
+  def anharmonic_coefficients(self, masses, F_es, F_gs, modes, Ek, qk):
+     """
+     Calculates the lamba_k from U = 1/2(wk**2)Q**2 + lambda_k(q**3) 
+     """
+     qfk = self.ConfigCoordinatesF(masses, F_es, F_gs, modes, Ek)
+     qk[np.abs(qk) <= 0] = 1e-6
+     lam_k = (qfk - ((Ek**2)/(self.hbar**2))*qk)/(3*(qk**2))
+     return lam_k
+
+     
+
 
 
 def calculate_spectrum_analytical(
@@ -511,7 +523,9 @@ class NumericalPhotoluminescence(Photoluminescence):
         self.wk = 2*np.pi*(self.Ek/4.13566)/(np.sqrt(9.646))
         self.x_coeffs_mode = self.hbar/(2*self.wk)
 
-    def ground_state_hamiltonian(self):
+    def ground_state_hamiltonian(self, Ek_ground = None):
+        if Ek_ground is not None:
+           self.Ek = Ek_ground
         H = np.zeros((len(self.Ek), self.num_states_max, self.num_states_max))
         for i in range(self.num_states_max):
             H[:, i, i] = self.hbar*self.wk*(i + 0.5)
@@ -522,7 +536,9 @@ class NumericalPhotoluminescence(Photoluminescence):
         eigenenergies_ground, eigenstates_ground,  = np.linalg.eigh(H)
         return eigenenergies_ground, eigenstates_ground
     
-    def excited_state_hamiltonian(self):
+    def excited_state_hamiltonian(self, Ek_excited = None):
+        if Ek_excited is not None:
+           self.Ek = Ek_excited
         coeff_linear_mode = 3*self.anharmonic_coeffs_mode_es*(self.qk**2) - (self.wk**2)*self.qk
         coeff_quadtratic_mode = -3*self.anharmonic_coeffs_mode_es*self.qk
         const_mode = 0.5*(self.wk**2)*(self.qk**2) - self.anharmonic_coeffs_mode_es*(self.qk**3)
