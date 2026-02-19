@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from math import factorial
+from scipy.special import erf
 import os
 
 class ReadFiles:
@@ -187,38 +188,25 @@ class Photoluminescence(ReadFiles):
     div = (2*np.pi)/(2*rv_high)
     return np.arange(iv_low, iv_high, div)
 
-  def Fourier(self, iv, function):
+  def Fourier(self, independent_variable, function):
+      iv = independent_variable
+      div = iv[1] - iv[0]
+      rv = 2*np.pi*np.fft.fftfreq(len(iv),div)
+      sort = np.argsort(rv)
+      reciprocal_variable = rv[sort]
+      dft = np.fft.fft(function)[sort]
+      fourier_transform = div*dft*np.exp(-1j*reciprocal_variable*iv[0])
+      return reciprocal_variable, fourier_transform
 
-    """
-    Discrete Fourier transform (DFT) using FFT algorithm.
-    Here, DFT is approximated as Continuous Fourier Transform.
-
-    Inputs: Independent variable and the function to be Fourier Transformed.
-
-    Outputs: 1D array of reciprocal variable (generally Energy or frequency in this case) on which
-    FFT has been performed and 1D array of the DFT result.
-    """
-    div = iv[1] - iv[0]
-    rv = 2*np.pi*np.fft.fftfreq(len(iv),div)
-    sort = np.argsort(rv)
-    rv = rv[sort]
-    DFT = np.fft.fft(function)[sort]
-    DFT = div*DFT*np.exp(-1j*rv*iv[0])
-    return rv, DFT
-
-  def InverseFourier(self, iv, function):
-
-    """
-    Inverse Discrete Fourier transform (IDFT) using FFT algorithm.
-    Here, DFT is approximated as Continuous Fourier Transform.
-    """
-    div = iv[1] - iv[0]
-    rv = 2*np.pi*np.fft.fftfreq(len(iv),div)
-    sort = np.argsort(rv)
-    rv = rv[sort]
-    IDFT = np.fft.ifft(function)[sort]
-    IDFT = div*IDFT*np.exp(1j*rv*iv[0])
-    return rv, IDFT
+  def InverseFourier(self, independent_variable, function):
+      iv = independent_variable
+      div = iv[1] - iv[0]
+      rv = 2*np.pi*np.fft.fftfreq(len(iv),div)
+      sort = np.argsort(rv)
+      reciprocal_variable = rv[sort]
+      idft = np.fft.ifft(function)[sort]
+      inverse_fourier_transform = div*idft*np.exp(1j*reciprocal_variable*iv[0])*len(rv)/(2*np.pi)
+      return reciprocal_variable, inverse_fourier_transform
 
   def Trapezoidal(self, integrand, iv, equally_spaced = True):
 
@@ -377,8 +365,6 @@ class Photoluminescence(ReadFiles):
 
      
 
-
-
 def calculate_spectrum_analytical(
   path_structure_gs,  # Path to ground state structure
   path_structure_es,  # Path to excited state structure
@@ -389,12 +375,14 @@ def calculate_spectrum_analytical(
   sigma, # Sigma value (meV) - Phonon sideband broadening
   temperature = 0, # Temperature
   tmax = 2000,  # Upper time limit (fs)
-  forces = None #(os.path.expanduser("./OUTCAR_T"), os.path.expanduser("./OUTCAR_GS")),  # Options: None or tuple (ES file path, GS file path)
+  forces = None, #(os.path.expanduser("./OUTCAR_T"), os.path.expanduser("./OUTCAR_GS")),  # Options: None or tuple (ES file path, GS file path)
+  spinpurification = False # External method dfor spin singlet excited state
 ):
 
     """
     Calculates all factors step by step.
     """
+    results = {}
     pl = Photoluminescence()
 
     R_gs, atoms_gs = pl.ReadStructure(path_structure_gs)
@@ -413,8 +401,13 @@ def calculate_spectrum_analytical(
     Ek[Ek == 0] = 0.00001
 
     if forces != None:
-      F_es = pl.ReadForces(forces[0])
+      if spinpurification == True:
+        F_es = np.loadtxt(forces[0])
+      else:
+        F_es = pl.ReadForces(forces[0])
+      results["F_es"] = F_es
       F_gs = pl.ReadForces(forces[1])
+      results["F_gs"] = F_gs
       qk = pl.ConfigCoordinatesF(masses, F_es, F_gs, modes, Ek)
     else:
       qk = pl.ConfigCoordinates(masses, R_es, R_gs, modes)
@@ -453,134 +446,99 @@ def calculate_spectrum_analytical(
     G_t = G_t[(t_fs >= 0) & (t_fs <= 550)]
     t_fs = t_fs[(t_fs >= 0) & (t_fs <= 550)]
 
-
-    # """
-    # Analyses of results.
-    # """
-    # plt.scatter(Ek, Sk, s = 5, marker = "s")
-    # plt.title(f"Total HR factor = {np.sum(Sk)}")
-    # plt.xlabel("Phonon Energy (meV)")
-    # plt.ylabel("$S_k$")
-    # plt.show()
-
-    # plt.plot(E_meV_positive, S_E)
-    # plt.xlabel("Phonon Energy (meV)")
-    # plt.ylabel("S(E)")
-    # plt.show()
-
-    # plt.plot(t_fs, np.real(S_t), label = "Real", color = "red")
-    # plt.plot(t_fs, np.imag(S_t), label = "Imaginary", color = "blue")
-    # plt.legend()
-    # plt.xlabel("Time (fs)")
-    # plt.ylabel("S(t)")
-    # plt.show()
-
-
-    # plt.plot(t_fs, np.real(G_t), label = "Real", color = "red")
-    # plt.plot(t_fs, np.imag(G_t), label = "Imaginary", color = "blue")
-    # plt.legend()
-    # plt.xlabel("Time (fs)")
-    # plt.ylabel("G(t)")
-    # plt.show()
-
-    # plt.plot(E_meV, np.abs(L_E))
-    # plt.xlabel("Photon Energy (meV)")
-    # plt.ylabel("PL")
-    # # plt.xlim(1700, 2000)
-    # plt.show()
-
-
-    # plt.scatter(Ek, IPR, s = 5, marker = "s")
-    # plt.title(f"Inverse Participation Ratio")
-    # plt.xlabel("Phonon Energy (meV)")
-    # plt.ylabel("IPR")
-    # plt.show()
-
-    return (R_gs, R_es, qk, modes, masses, (Ek, Sk), (E_meV_positive, S_E), (t_meV, t_fs, S_t, S_t_exact), (G_t), (E_meV, A_E), (L_E), IPR)
-
-
-
-
-
-
-
-
-
-
+    results["R_gs"] = R_gs
+    results["R_es"] = R_es
+    results["qk"] = qk
+    results["modes"] = modes
+    results["masses"] = masses
+    results["Ek"] = Ek
+    results["Sk"] = Sk
+    results["E_meV_positive"] = E_meV_positive
+    results["S_E"] = S_E
+    results["t_meV"] = t_meV
+    results["t_fs"] = t_fs
+    results["S_t"] = S_t
+    results["S_t_exact"] = S_t_exact
+    results["G_t"] = G_t
+    results["E_meV"] = E_meV
+    results["A_E"] = A_E
+    results["L_E"] = L_E
+    results["IPR"] = IPR  
+    
+    return results
 
 
 
 
 class NumericalPhotoluminescence(Photoluminescence):
 
-    def __init__(self, num_states_max, Ek, qk, anharmonic_coeffs_mode_gs, anharmonic_coeffs_mode_es):
+    def __init__(self, num_states_max, Ek_gs, Ek_es, qk, anharmonic_coeffs_mode_gs, anharmonic_coeffs_mode_es):
         self.num_states_max = num_states_max  # Maximum number of basis states.
-        self.Ek = Ek   # Phonon energies for 3N modes - 1d array
+        self.Ek_gs = Ek_gs   # Phonon energies for 3N modes - 1d array
+        self.Ek_es = Ek_es   # Phonon energies for 3N modes - 1d array
         self.qk = qk   # Displacement along mode k of the excited state oscillator - 1d array
         self.anharmonic_coeffs_mode_gs = anharmonic_coeffs_mode_gs  # Anharmonic coefficients for each mode - 1d array
         self.anharmonic_coeffs_mode_es = anharmonic_coeffs_mode_es  # Anharmonic coefficients for each mode - 1d array
         self.hbar = 0.6582*np.sqrt(9.646)
-        self.wk = 2*np.pi*(self.Ek/4.13566)/(np.sqrt(9.646))
-        self.x_coeffs_mode = self.hbar/(2*self.wk)
+        self.wk_gs = 2*np.pi*(self.Ek_gs/4.13566)/(np.sqrt(9.646))
+        self.wk_es = 2*np.pi*(self.Ek_es/4.13566)/(np.sqrt(9.646))
+        self.x_coeffs_mode_gs = self.hbar/(2*self.wk_gs)
+        self.x_coeffs_mode_es = self.hbar/(2*self.wk_es)
 
-    def ground_state_hamiltonian(self, Ek_ground = None):
-        if Ek_ground is not None:
-           self.Ek = Ek_ground
-        H = np.zeros((len(self.Ek), self.num_states_max, self.num_states_max))
+    def ground_state_hamiltonian(self):
+        H = np.zeros((len(self.Ek_gs), self.num_states_max, self.num_states_max))
         for i in range(self.num_states_max):
-            H[:, i, i] = self.hbar*self.wk*(i + 0.5)
+            H[:, i, i] = self.hbar*self.wk_gs*(i + 0.5)
             if i < self.num_states_max - 1:
-                H[:, i, i+1] = H[:, i+1, i] = self.anharmonic_coeffs_mode_gs*(self.x_coeffs_mode**1.5)*(3*(i+1)*np.sqrt(i+1))
+                H[:, i, i+1] = H[:, i+1, i] = self.anharmonic_coeffs_mode_gs*(self.x_coeffs_mode_gs**1.5)*(3*(i+1)*np.sqrt(i+1))
             if i < self.num_states_max - 3:
-                H[:, i, i+3] = H[:, i+3, i] = self.anharmonic_coeffs_mode_gs*(self.x_coeffs_mode**1.5)*(np.sqrt((i+1)*(i+2)*(i+3)))
+                H[:, i, i+3] = H[:, i+3, i] = self.anharmonic_coeffs_mode_gs*(self.x_coeffs_mode_gs**1.5)*(np.sqrt((i+1)*(i+2)*(i+3)))
         eigenenergies_ground, eigenstates_ground,  = np.linalg.eigh(H)
         return eigenenergies_ground, eigenstates_ground
     
-    def excited_state_hamiltonian(self, Ek_excited = None):
-        if Ek_excited is not None:
-           self.Ek = Ek_excited
-        coeff_linear_mode = 3*self.anharmonic_coeffs_mode_es*(self.qk**2) - (self.wk**2)*self.qk
+    def excited_state_hamiltonian(self):
+        coeff_linear_mode = 3*self.anharmonic_coeffs_mode_es*(self.qk**2) - (self.wk_es**2)*self.qk
         coeff_quadtratic_mode = -3*self.anharmonic_coeffs_mode_es*self.qk
-        const_mode = 0.5*(self.wk**2)*(self.qk**2) - self.anharmonic_coeffs_mode_es*(self.qk**3)
+        const_mode = 0.5*(self.wk_es**2)*(self.qk**2) - self.anharmonic_coeffs_mode_es*(self.qk**3)
 
-        H = np.zeros((len(self.Ek), self.num_states_max, self.num_states_max))
+        H = np.zeros((len(self.Ek_es), self.num_states_max, self.num_states_max))
         for i in range(self.num_states_max):
-            H[:, i, i] = self.hbar*self.wk*(i + 0.5) + self.x_coeffs_mode*coeff_quadtratic_mode*(2*i+1) + const_mode
+            H[:, i, i] = self.hbar*self.wk_es*(i + 0.5) + self.x_coeffs_mode_es*coeff_quadtratic_mode*(2*i+1) + const_mode
             if i < self.num_states_max - 1:
-                H[:, i, i+1] = H[:, i+1, i] = self.anharmonic_coeffs_mode_es*(self.x_coeffs_mode**1.5)*(3*(i+1)*np.sqrt(i+1)) \
-                    + (self.x_coeffs_mode**0.5)*(coeff_linear_mode)*np.sqrt(i+1)
+                H[:, i, i+1] = H[:, i+1, i] = self.anharmonic_coeffs_mode_es*(self.x_coeffs_mode_es**1.5)*(3*(i+1)*np.sqrt(i+1)) \
+                    + (self.x_coeffs_mode_es**0.5)*(coeff_linear_mode)*np.sqrt(i+1)
             if i < self.num_states_max - 2:
-                H[:, i, i+2] = H[:, i+2, i] = self.x_coeffs_mode*coeff_quadtratic_mode*np.sqrt((i+1)*(i+2))
+                H[:, i, i+2] = H[:, i+2, i] = self.x_coeffs_mode_es*coeff_quadtratic_mode*np.sqrt((i+1)*(i+2))
             if i < self.num_states_max - 3:
-                H[:, i, i+3] = H[:, i+3, i] = self.anharmonic_coeffs_mode_es*(self.x_coeffs_mode**1.5)*(np.sqrt((i+1)*(i+2)*(i+3)))
+                H[:, i, i+3] = H[:, i+3, i] = self.anharmonic_coeffs_mode_es*(self.x_coeffs_mode_es**1.5)*(np.sqrt((i+1)*(i+2)*(i+3)))
         vals, vecs = np.linalg.eigh(H)
         eigenenergies_excited = vals[:, 0]
         eigenstates_excited = vecs[:, :, 0]
         return eigenenergies_excited, eigenstates_excited
 
-    def calculate_franck_condon_factors(self, eigenenergies_ground, eigenstates_ground, eigenenergies_excited, eigenstates_excited):
+    def calculate_franck_condon_factors(self, eigenenergies_ground, eigenstates_ground, eigenstates_excited):
         franck_condon_factors = np.array([[(np.abs(np.dot(eigenstates_ground[k,:,i], eigenstates_excited[k,:]))**2) for i in range(self.num_states_max)] \
-            for k in range(len(self.Ek))])
+            for k in range(len(self.Ek_gs))])
         franck_condon_factors /= np.sum(franck_condon_factors, axis=1, keepdims=True)
-        eigenenergies_excited = eigenenergies_excited[:, None]
-        eigenenergies_excited = np.repeat(eigenenergies_excited, self.num_states_max, axis=1)
-        # energy_phonon_mode = (eigenenergies_ground - eigenenergies_ground[:, 0][:, None])
-        energy_phonon_mode = (eigenenergies_ground - eigenenergies_excited)
+        energy_phonon_mode = (eigenenergies_ground - eigenenergies_ground[:, 0][:, None])
         energy_phonon_mode[:, 0] = 0.0
         return franck_condon_factors, energy_phonon_mode
     
-    def numerical_generating_function(self, franck_condon_factors, energy_phonon_mode, t_meV, sigma):
-        """
-        Calculates the generating function G(t) numerically, with Frank Condon factors and corresponding eigen energies.
-        Often will be used for anharmonic terms.
-        """
-        G_k_t = np.array([[(np.dot(franck_condon_factors[k,:], np.exp(-1j*energy_phonon_mode[k,:]*t))*np.exp(-(t**2)*(sigma**2))) for t in t_meV] for k in range(franck_condon_factors.shape[0])])
-        G_t = np.prod(G_k_t, axis = 0)
-        return G_t
+    def numerical_luminescence(self, franck_condon_factors, energy_phonon_mode, E_meV_positive, zpl, gamma, sigma):
+        F = franck_condon_factors
+        E = energy_phonon_mode
+        G_k_E = np.array([np.dot(F[0,:], self.Gaussian(i, E[0,:], sigma)) for i in E_meV_positive])
+        t_meV, _ = self.Fourier(E_meV_positive, G_k_E)
+        G_k_t = np.array([[np.dot(F[k,:], np.exp(-1j*E[k,:]*i)) for i in t_meV] for k in range(F.shape[0])])
+        G_t = np.prod(G_k_t, axis=0)
+        G_t *= np.exp(-(sigma**2)*(t_meV**2)/2)
+        E_meV, A_E = self.OpticalSpectralFunction(G_t, t_meV, zpl, gamma)
+        E_meV, L_E = self.LuminescenceIntensity(E_meV, A_E, zpl)
+        return (t_meV, G_t, E_meV, L_E)
 
     def test(self):
-        self.Sk = self.wk*(self.qk**2)/(2*self.hbar)
-        poisson = np.array([[(np.exp(-self.Sk[k])*(self.Sk[k]**i)/(factorial(i))) for i in range(self.num_states_max)] for k in range(len(self.Ek))])
+        self.Sk = self.wk_gs*(self.qk**2)/(2*self.hbar)
+        poisson = np.array([[(np.exp(-self.Sk[k])*(self.Sk[k]**i)/(factorial(i))) for i in range(self.num_states_max)] for k in range(len(self.Ek_gs))])
         poisson /= np.sum(poisson, axis=1, keepdims=True)
         return poisson
     
@@ -591,7 +549,7 @@ class NumericalPhotoluminescence(Photoluminescence):
        energy_photon =  zpl - energy_phonons
 
        bins = 2*int(np.sqrt(num_samples))
-       min_hist_energy_photon = zpl - 2*self.Ek.max()
+       min_hist_energy_photon = zpl - 2*self.Ek_gs.max()
        max_hist_energy_photon = zpl + 20
        y_photon, x_photon = np.histogram(energy_photon, bins = bins, range = (min_hist_energy_photon, max_hist_energy_photon), density = True) 
        x_photon = x_photon[:-1] + (np.diff(x_photon) / 2)
@@ -604,8 +562,8 @@ class NumericalPhotoluminescence(Photoluminescence):
        L_E = L_E/np.trapezoid(L_E, E_meV)
 
 
-       min_hist_energy_phonons = self.Ek.min()
-       max_hist_energy_phonons = self.Ek.max()
+       min_hist_energy_phonons = self.Ek_gs.min()
+       max_hist_energy_phonons = self.Ek_gs.max()
        y_phonons, x_phonons = np.histogram(energy_phonons, bins = bins, range = (min_hist_energy_phonons, max_hist_energy_phonons), density = True) 
        x_phonons = x_phonons[:-1] + (np.diff(x_phonons) / 2)
 
@@ -618,59 +576,65 @@ class NumericalPhotoluminescence(Photoluminescence):
 
 
 
-def calculate_spectrum_numerical(num_states_max, Ek, qk, anharmonic_coeffs_mode_gs, anharmonic_coeffs_mode_es, t_meV, zpl, gamma, sigma, generating_function_simulation=True, monte_carlo_simulation=True, num_samples=None):
+def calculate_spectrum_numerical(num_states_max, 
+                                 Ek_gs, 
+                                 Ek_es, 
+                                 qk, 
+                                 anharmonic_coeffs_mode_gs, 
+                                 anharmonic_coeffs_mode_es,  
+                                 zpl, 
+                                 gamma, 
+                                 sigma, 
+                                 generating_function_simulation=True, 
+                                 monte_carlo_simulation=False, 
+                                 num_samples=None,
+                                 tmax = 2000):
     
-    npl = NumericalPhotoluminescence(num_states_max = num_states_max, Ek = Ek, qk = qk, anharmonic_coeffs_mode_gs = anharmonic_coeffs_mode_gs, anharmonic_coeffs_mode_es = anharmonic_coeffs_mode_es)
+    npl = NumericalPhotoluminescence(num_states_max = num_states_max, 
+                                     Ek_gs = Ek_gs, 
+                                     Ek_es = Ek_es, 
+                                     qk = qk, 
+                                     anharmonic_coeffs_mode_gs = anharmonic_coeffs_mode_gs, 
+                                     anharmonic_coeffs_mode_es = anharmonic_coeffs_mode_es)
     results = {}
     eigenenergies_ground, eigenstates_ground = npl.ground_state_hamiltonian()
     eigenenergies_excited, eigenstates_excited = npl.excited_state_hamiltonian()
-    franck_condon_factors, energy_phonon_mode = npl.calculate_franck_condon_factors(eigenenergies_ground, eigenstates_ground, eigenenergies_excited, eigenstates_excited)
+    franck_condon_factors, energy_phonon_mode = npl.calculate_franck_condon_factors(eigenenergies_ground, eigenstates_ground, eigenstates_excited)
     poisson_factors_harmonic = npl.test()
+    
     results["franck_condon_factors"] = franck_condon_factors
     results["energy_phonon_mode"] = energy_phonon_mode
     results["poisson_factors_harmonic"] = poisson_factors_harmonic
 
     abs_diff = np.sum(np.abs(franck_condon_factors - poisson_factors_harmonic))
-    print(f"Sum of absolute difference between harmonic-poissonian-factors and franck-condon-factor = {abs_diff}.") 
+    print(f"Sum of absolute difference between harmonic-poissonian-factors and franck-condon-factor = {abs_diff: .5f}.") 
 
+    if zpl != 0:
+      Emax = 2.5*zpl
+    else:
+      Emax = 5000
+    tmax_meV = npl.TimeScaling(tmax)
+    E_meV_positive = npl.IV(0, Emax, tmax_meV)
     if generating_function_simulation:
-      G_t = npl.numerical_generating_function(franck_condon_factors, energy_phonon_mode, t_meV, sigma)
-      E_meV, A_E = npl.OpticalSpectralFunction(G_t, t_meV, zpl, gamma)
-      E_meV, L_E = npl.LuminescenceIntensity(E_meV, A_E, zpl)
+      t_meV, G_t, E_meV, L_E = npl.numerical_luminescence(franck_condon_factors, energy_phonon_mode, E_meV_positive, zpl, gamma, sigma)
       t_fs = npl.TimeScaling(t_meV, reverse = True)
 
       G_t = G_t[(t_fs >= 0) & (t_fs <= 550)]
       t_fs = t_fs[(t_fs >= 0) & (t_fs <= 550)]
 
-      results["generating_function"] = (t_fs, G_t, E_meV, L_E)
+      results["t_meV"] = t_meV
+      results["t_fs"] = t_fs
+      results["G_t"] = G_t
+      results["E_meV"] = E_meV
+      results["L_E"] = L_E
       
 
     if monte_carlo_simulation:
       (E_photon_monte_carlo, L_monte_carlo), (E_phonons_monte_carlo, S_monte_carlo) = npl.monte_carlo_sampling(franck_condon_factors, energy_phonon_mode, num_samples, zpl, gamma, sigma)
-      results["monte_carlo"] = (E_photon_monte_carlo, L_monte_carlo, E_phonons_monte_carlo, S_monte_carlo)
-  
-    # plt.plot(t_fs, np.real(G_t), label = "Real", color = "red")
-    # plt.plot(t_fs, np.imag(G_t), label = "Imaginary", color = "blue")
-    # plt.legend()
-    # plt.xlabel("Time (fs)")
-    # plt.ylabel("G(t)")
-    # plt.show()
-
-    # plt.plot(E_meV, np.real(L_E))
-    # plt.xlabel("Photon Energy (meV)")
-    # plt.ylabel("PL")
-    # # plt.xlim(1700, 2000)
-    # plt.show()
-    # plt.plot(E_meV_phonons, S_E)
-    # plt.xlabel("Phonon energies (meV)")
-    # plt.ylabel("S(E) in (1/meV)")
-    # plt.show()
-
-    # plt.plot(E_meV, L_E)
-    # plt.xlabel("Photon energies (meV)")
-    # plt.ylabel("PL (arb. units)")
-    # plt.axvline(x=4143, color='b', linestyle='--', linewidth=1, alpha = 0.5)
-    # plt.show()
+      results["E_photon_monte_carlo"] = E_photon_monte_carlo
+      results["L_monte_carlo"] = L_monte_carlo
+      results["E_phonons_monte_carlo"] = E_phonons_monte_carlo
+      results["S_monte_carlo"] = S_monte_carlo
 
     return results
 
