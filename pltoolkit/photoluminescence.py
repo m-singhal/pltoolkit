@@ -273,10 +273,10 @@ class Photoluminescence(ReadFiles):
     as used in previous function.
     """
     masses = np.sqrt(masses)
-    F_diff = (F_es - F_gs)
+    F_diff = (F_es - F_gs)*1000
     mF_diff = np.array([(1/masses[i])*F_diff[i,:] for i in range(len(masses))])
     qk = np.array([np.sum(mF_diff*modes[i,:,:]) for i in range(modes.shape[0])])
-    qk = (1/Ek**2)*qk*4180.069
+    qk = (self.hbar**2/Ek**2)*qk
     return qk
 
   def PartialHR(self, freqs, qk):
@@ -354,13 +354,13 @@ class Photoluminescence(ReadFiles):
     IPR = 1/np.einsum("ij -> i", p**2)
     return IPR
   
-  def anharmonic_coefficients(self, masses, F_es, F_gs, modes, Ek, qk):
+  def anharmonic_coefficients(self,  F_es, F_gs, modes, Ek, qk):
      """
      Calculates the lamba_k from U = 1/2(wk**2)Q**2 + lambda_k(q**3) 
      """
-     qfk = self.ConfigCoordinatesF(masses, F_es, F_gs, modes, Ek)
-     qk[np.abs(qk) <= 0] = 1e-6
-     lam_k = (qfk - ((Ek**2)/(self.hbar**2))*qk)/(3*(qk**2))
+     F_diff = (F_es - F_gs)*1000
+     Fk = np.array([np.sum(modes[k]*F_diff) for k in range(modes.shape[0])])
+     lam_k = (Fk - (Ek**2/self.hbar**2)*qk)/(3*(qk**2))
      return lam_k
 
      
@@ -395,9 +395,11 @@ def calculate_spectrum_analytical(
     else:
       masses, freqs, modes = pl.ReadPhononsVasp(path_phonon_band, atoms_es)
     
-
-    freqs[freqs < 0.1] = 0.0
     Ek = pl.FreqToEnergy(freqs)
+    modes = modes[3:,...]
+    freqs = freqs[3:]
+    Ek = Ek[3:]
+    freqs[freqs < 0.1] = 0.0
     Ek[Ek == 0] = 0.00001
 
     if forces != None:
