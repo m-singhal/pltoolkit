@@ -3,6 +3,7 @@
 from .displacements import GenerateDisplacements
 from .photoluminescence import (
     calculate_spectrum_analytical,
+    calculate_spectrum_analytical_distorted,
     calculate_spectrum_numerical,
     Photoluminescence,
     NumericalPhotoluminescence,
@@ -11,6 +12,7 @@ from .photoluminescence import (
 __all__ = [
     "GenerateDisplacements",
     "calculate_spectrum_analytical",
+    "calculate_spectrum_analytical_distorted",
     "calculate_spectrum_numerical",
     "Photoluminescence",
     "NumericalPhotoluminescence",

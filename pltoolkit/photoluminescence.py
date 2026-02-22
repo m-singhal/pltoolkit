@@ -325,25 +325,78 @@ class Photoluminescence(ReadFiles):
       C_t_inv = self.InverseFourier(E_meV_positive, C_E)[1]
       G_t = np.exp((S_t) - (np.sum(Sk)) + C_t + C_t_inv - 2*np.sum(nk*Sk))
     return G_t
+  
+  def generating_function_distorted(self, Sk, Ek_gs, Ek_es, t_meV, sigma):
+     
+      rk_emission = 0.5*np.log(Ek_es/Ek_gs)
+      rk_emission[np.isclose(rk_emission, 0)] = 1e-8
+      rk_absorption = -rk_emission
+
+      wk_emission = np.array([np.tanh(rk_emission[k])*np.exp(-1j*Ek_gs[k]*t_meV) for k in range(len(rk_emission))])
+      wk_absorption = np.array([np.tanh(rk_absorption[k])*np.exp(1j*Ek_es[k]*t_meV) for k in range(len(rk_absorption))])
+
+      Lk_emission = np.array([
+         (1 + np.tanh(rk_emission[k])) + (((1 + np.tanh(rk_emission[k])**2)/np.tanh(rk_emission[k]))*((wk_emission[k]**2)/(1 - wk_emission[k]**2))) - \
+          (((1 + np.tanh(rk_emission[k])**2)/(np.tanh(rk_emission[k])))*((wk_emission[k])/(1 - wk_emission[k]**2))) \
+          for k in range(len(rk_emission))
+         ])
+      Lk_absorption = np.array([
+         (1 + np.tanh(rk_absorption[k])) + (((1 + np.tanh(rk_absorption[k])**2)/np.tanh(rk_absorption[k]))*((wk_absorption[k]**2)/(1 - wk_absorption[k]**2))) - \
+          (((1 + np.tanh(rk_absorption[k])**2)/(np.tanh(rk_absorption[k])))*((wk_absorption[k])/(1 - wk_absorption[k]**2))) \
+          for k in range(len(rk_absorption))
+         ])
+      
+      broadening = np.exp(-0.5*((t_meV**2)*(sigma**2)))
+      G_t_emission = np.array([Sk[k]*Lk_emission[k] + np.log(np.cosh(rk_emission[k])) + 0.5*np.log(1 - wk_emission[k]**2) for k in range(len(Sk))])
+      G_t_emission = np.exp(-np.sum(G_t_emission, axis = 0))*broadening
+      G_t_absorption = np.array([Sk[k]*Lk_absorption[k] + np.log(np.cosh(rk_absorption[k])) + 0.5*np.log(1 - wk_absorption[k]**2) for k in range(len(Sk))])
+      G_t_absorption = np.exp(-np.sum(G_t_absorption, axis = 0))*broadening
+
+      return rk_emission, G_t_emission, G_t_absorption
 
   def OpticalSpectralFunction(self, G_t, t_meV, zpl, gamma):
+    
+    E_meV = np.linspace(zpl - 600, zpl + 600, 2000)
 
-    """
-    Calculates the optical spectra A(E).
-    """
-    E_meV, A_E =  self.Fourier(t_meV, (G_t*np.exp(1j*zpl*t_meV))*np.exp(-(gamma*np.abs(t_meV))))
-    A_E = (1/len(t_meV))*A_E
-    return E_meV, A_E
+    A_E = []
 
-  def LuminescenceIntensity(self, E_meV, A_E, zpl):
+    for E in E_meV:
+        integrand = (
+            G_t
+            * np.exp(-1j * (E - zpl) * t_meV)
+            * np.exp(-gamma * np.abs(t_meV))
+        )
+
+        A_val = np.trapezoid(integrand, t_meV)
+        A_E.append(A_val)
+
+    return E_meV, np.array(A_E)
+
+  # def OpticalSpectralFunction(self, G_t, t_meV, zpl, gamma, absorption = False):
+
+  #   """
+  #   Calculates the optical spectra A(E).
+  #   """
+  #   if absorption:
+  #      E_meV, A_E =  self.InverseFourier(t_meV, (G_t*np.exp(-1j*zpl*t_meV))*np.exp(-(gamma*np.abs(t_meV))))
+  #   else:
+  #      E_meV, A_E =  self.Fourier(t_meV, (G_t*np.exp(1j*zpl*t_meV))*np.exp(-(gamma*np.abs(t_meV))))
+  #   return E_meV, A_E
+
+  def LuminescenceIntensity(self, E_meV, A_E, zpl, absorption = False):
 
     """
     Calculates the normalized photoluminescence (PL), L(E)
     """
-    A_E = A_E[(E_meV >= (zpl - 500)) & (E_meV <= (zpl + 100))]
-    E_meV = E_meV[(E_meV >= (zpl - 500)) & (E_meV <= (zpl + 100))]
-    L_E = ((E_meV**3)*A_E)/(self.Trapezoidal(((E_meV**3)*A_E), E_meV))
-    return E_meV, L_E
+    A_E = A_E[(E_meV >= (zpl - 600)) & (E_meV <= (zpl + 600))]
+    E_meV = E_meV[(E_meV >= (zpl - 600)) & (E_meV <= (zpl + 600))]
+    if absorption:
+        L_E = (E_meV)*np.real(A_E)
+        L_E /= np.trapezoid(L_E, E_meV)
+    else:
+       L_E = (E_meV**3)*np.real(A_E)
+       L_E /= np.trapezoid(L_E, E_meV)
+    return E_meV, A_E, L_E
 
   def InverseParticipationRatio(self, modes):
 
@@ -433,7 +486,7 @@ def calculate_spectrum_analytical(
 
 
 
-    E_meV, L_E = pl.LuminescenceIntensity(E_meV, A_E, zpl)
+    E_meV, A_E, L_E = pl.LuminescenceIntensity(E_meV, A_E, zpl)
 
 
 
@@ -469,6 +522,40 @@ def calculate_spectrum_analytical(
     
     return results
 
+
+def calculate_spectrum_analytical_distorted(
+      Sk, 
+      Ek_gs, 
+      Ek_es,
+      t_meV, 
+      zpl,
+      gamma,
+      sigma      
+):
+   results = {}
+   pl = Photoluminescence()
+
+   rk, G_t_emission, G_t_absorption = pl.generating_function_distorted(Sk, Ek_gs, Ek_es, t_meV, sigma)
+   
+   E_meV_emission, A_E_emission = pl.OpticalSpectralFunction(G_t_emission, t_meV, zpl, gamma)
+   E_meV_absorption, A_E_absorption = pl.OpticalSpectralFunction(G_t_absorption, t_meV, zpl, gamma)
+   
+   E_meV_emission, A_E_emission, L_E_emission = pl.LuminescenceIntensity(E_meV_emission, A_E_emission, zpl)
+   E_meV_absorption, A_E_absorption, L_E_absorption = pl.LuminescenceIntensity(E_meV_absorption, A_E_absorption, zpl, absorption = True)
+   
+   t_fs = pl.TimeScaling(t_meV, reverse = True)
+
+   results["rk"] = rk
+   results["t_fs"] = t_fs
+   results["G_t_emission"] = G_t_emission
+   results["G_t_absorption"] = G_t_absorption
+   results["E_meV_emission"] = E_meV_emission
+   results["E_meV_absorption"] = E_meV_absorption
+   results["A_E_emission"] = A_E_emission
+   results["A_E_absorption"] = A_E_absorption
+   results["L_E_emission"] = L_E_emission
+   results["L_E_absorption"] = L_E_absorption
+   return results
 
 
 
