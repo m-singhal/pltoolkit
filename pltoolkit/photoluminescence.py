@@ -332,6 +332,8 @@ class Photoluminescence(ReadFiles):
       rk_emission[np.isclose(rk_emission, 0)] = 1e-8
       rk_absorption = -rk_emission
 
+      Sk_abs = Sk*((np.cosh(rk_emission) + np.sinh(rk_emission))**2)
+
       wk_emission = np.array([np.tanh(rk_emission[k])*np.exp(-1j*Ek_gs[k]*t_meV) for k in range(len(rk_emission))])
       wk_absorption = np.array([np.tanh(rk_absorption[k])*np.exp(1j*Ek_es[k]*t_meV) for k in range(len(rk_absorption))])
 
@@ -349,7 +351,7 @@ class Photoluminescence(ReadFiles):
       broadening = np.exp(-0.5*((t_meV**2)*(sigma**2)))
       G_t_emission = np.array([Sk[k]*Lk_emission[k] + np.log(np.cosh(rk_emission[k])) + 0.5*np.log(1 - wk_emission[k]**2) for k in range(len(Sk))])
       G_t_emission = np.exp(-np.sum(G_t_emission, axis = 0))*broadening
-      G_t_absorption = np.array([Sk[k]*Lk_absorption[k] + np.log(np.cosh(rk_absorption[k])) + 0.5*np.log(1 - wk_absorption[k]**2) for k in range(len(Sk))])
+      G_t_absorption = np.array([Sk_abs[k]*Lk_absorption[k] + np.log(np.cosh(rk_absorption[k])) + 0.5*np.log(1 - wk_absorption[k]**2) for k in range(len(Sk))])
       G_t_absorption = np.exp(-np.sum(G_t_absorption, axis = 0))*broadening
 
       return rk_emission, G_t_emission, G_t_absorption
