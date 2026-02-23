@@ -622,8 +622,8 @@ class NumericalPhotoluminescence(Photoluminescence):
         G_t = np.prod(G_k_t, axis=0)
         G_t *= np.exp(-(sigma**2)*(t_meV**2)/2)
         E_meV, A_E = self.OpticalSpectralFunction(G_t, t_meV, zpl, gamma)
-        E_meV, L_E = self.LuminescenceIntensity(E_meV, A_E, zpl)
-        return (t_meV, G_t, E_meV, L_E)
+        E_meV, A_E, L_E = self.LuminescenceIntensity(E_meV, A_E, zpl)
+        return (t_meV, G_t, E_meV, A_E, L_E)
 
     def test(self):
         self.Sk = self.wk_gs*(self.qk**2)/(2*self.hbar)
@@ -705,7 +705,7 @@ def calculate_spectrum_numerical(num_states_max,
     tmax_meV = npl.TimeScaling(tmax)
     E_meV_positive = npl.IV(0, Emax, tmax_meV)
     if generating_function_simulation:
-      t_meV, G_t, E_meV, L_E = npl.numerical_luminescence(franck_condon_factors, energy_phonon_mode, E_meV_positive, zpl, gamma, sigma)
+      t_meV, G_t, E_meV, A_E, L_E = npl.numerical_luminescence(franck_condon_factors, energy_phonon_mode, E_meV_positive, zpl, gamma, sigma)
       t_fs = npl.TimeScaling(t_meV, reverse = True)
 
       G_t = G_t[(t_fs >= 0) & (t_fs <= 550)]
@@ -715,6 +715,7 @@ def calculate_spectrum_numerical(num_states_max,
       results["t_fs"] = t_fs
       results["G_t"] = G_t
       results["E_meV"] = E_meV
+      results["A_E"] = A_E
       results["L_E"] = L_E
       
 
