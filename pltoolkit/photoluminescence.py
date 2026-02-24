@@ -328,33 +328,27 @@ class Photoluminescence(ReadFiles):
   
   def generating_function_distorted(self, Sk, Ek_gs, Ek_es, t_meV, sigma):
      
-      rk_emission = 0.5*np.log(Ek_es/Ek_gs)
-      rk_emission[np.isclose(rk_emission, 0)] = 1e-8
-      rk_absorption = -rk_emission
-
-      Sk_abs = Sk*((np.cosh(rk_emission) + np.sinh(rk_emission))**2)
-
-      wk_emission = np.array([np.tanh(rk_emission[k])*np.exp(-1j*Ek_gs[k]*t_meV) for k in range(len(rk_emission))])
-      wk_absorption = np.array([np.tanh(rk_absorption[k])*np.exp(1j*Ek_es[k]*t_meV) for k in range(len(rk_absorption))])
-
-      Lk_emission = np.array([
-         (1 + np.tanh(rk_emission[k])) + (((1 + np.tanh(rk_emission[k])**2)/np.tanh(rk_emission[k]))*((wk_emission[k]**2)/(1 - wk_emission[k]**2))) - \
-          (((1 + np.tanh(rk_emission[k])**2)/(np.tanh(rk_emission[k])))*((wk_emission[k])/(1 - wk_emission[k]**2))) \
-          for k in range(len(rk_emission))
-         ])
-      Lk_absorption = np.array([
-         (1 + np.tanh(rk_absorption[k])) + (((1 + np.tanh(rk_absorption[k])**2)/np.tanh(rk_absorption[k]))*((wk_absorption[k]**2)/(1 - wk_absorption[k]**2))) - \
-          (((1 + np.tanh(rk_absorption[k])**2)/(np.tanh(rk_absorption[k])))*((wk_absorption[k])/(1 - wk_absorption[k]**2))) \
-          for k in range(len(rk_absorption))
-         ])
-      
+      rk = 0.5*np.log(Ek_es/Ek_gs)
+      rk[np.isclose(rk, 0)] = 1e-8
       broadening = np.exp(-0.5*((t_meV**2)*(sigma**2)))
-      G_t_emission = np.array([Sk[k]*Lk_emission[k] + np.log(np.cosh(rk_emission[k])) + 0.5*np.log(1 - wk_emission[k]**2) for k in range(len(Sk))])
-      G_t_emission = np.exp(-np.sum(G_t_emission, axis = 0))*broadening
-      G_t_absorption = np.array([Sk_abs[k]*Lk_absorption[k] + np.log(np.cosh(rk_absorption[k])) + 0.5*np.log(1 - wk_absorption[k]**2) for k in range(len(Sk))])
-      G_t_absorption = np.exp(-np.sum(G_t_absorption, axis = 0))*broadening
 
-      return rk_emission, G_t_emission, G_t_absorption
+      # Emission
+      rho_k_t = np.array([np.exp(-1j*t_meV*Ek_gs[k])*np.tanh(rk[k]) for k in range(len(Sk))])
+      L_k_t = np.array([(1 + np.tanh(rk[k]))*((np.tanh(rk[k]) - rho_k_t[k])/((1 + rho_k_t[k])*np.tanh(rk[k]))) for k in range(len(Sk))])
+      ln_G = np.array([np.log(np.cosh(rk[k])) + 0.5*np.log(1 - rho_k_t[k]**2) + Sk[k]*L_k_t[k] for k in range(len(Sk))])
+      G_t_emission = broadening*np.exp(-np.sum(ln_G, axis=0))
+
+      # Absorption
+      rho_k_t = np.array([np.exp(1j*t_meV*Ek_es[k])*np.tanh(rk[k]) for k in range(len(Sk))])
+      L_k_t = np.array([(1 - np.tanh(rk[k]))*((np.tanh(rk[k]) - rho_k_t[k])/((1 - rho_k_t[k])*np.tanh(rk[k]))) for k in range(len(Sk))])
+      Sk_abs = Sk*((np.cosh(rk) + np.sinh(rk))**2)
+      ln_G = np.array([np.log(np.cosh(rk[k])) + 0.5*np.log(1 - rho_k_t[k]**2) + Sk_abs[k]*L_k_t[k] for k in range(len(Sk))])
+      G_t_absorption = broadening*np.exp(-np.sum(ln_G, axis=0))
+      
+      return rk, G_t_emission, G_t_absorption
+      
+
+      
 
   def OpticalSpectralFunction(self, G_t, t_meV, zpl, gamma):
     
