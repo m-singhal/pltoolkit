@@ -137,25 +137,18 @@ class ReadFiles:
     """
     Reads and stores the Forces (eV/Angstrom) on each atom from the OUTCAR file and returns a 2D array.
     """
-    forces = []
-    start_collecting = False
-    lines_buffer = []
-
-    with open(path, 'r') as file:
-        for line in file:
-          if "TOTAL-FORCE" in line:
-                start_collecting = True
-                continue
-          if start_collecting:
-              if "total drift:" in line:
-                  break
-              lines_buffer.append(line.strip())
-    for line in lines_buffer[1:-1]:
-      numbers = [float(num) for num in line.split()]
-      forces.append(numbers)
-    forces = np.array(forces)
-    forces = forces[:,3:]
-    return forces
+    with open(path, "r") as f:
+            lines = f.readlines()
+            start = end = None
+            for index,line in enumerate(lines):
+                if "TOTAL-FORCE" in line:
+                    start = index + 2
+                if "total drift" in line:
+                    end = index - 1
+            if start is None or end is None:
+                raise ValueError(f"Force data not found in OUTCAR.")
+            F = np.loadtxt(lines[start:end])
+    return F[:,3:]
 
 
 
@@ -326,10 +319,13 @@ class Photoluminescence(ReadFiles):
       G_t = np.exp((S_t) - (np.sum(Sk)) + C_t + C_t_inv - 2*np.sum(nk*Sk))
     return G_t
   
-  def generating_function_distorted(self, Sk, Ek_gs, Ek_es, t_meV, sigma):
+  def generating_function_distorted(self, Sk, Ek_gs, Ek_es, t_meV, sigma, rk_init = None):
      
-      rk = 0.5*np.log(Ek_es/Ek_gs)
-      rk[np.isclose(rk, 0)] = 1e-8
+      if rk_init is not None:
+         rk = rk_init
+      else:
+        rk = 0.5*np.log(Ek_es/Ek_gs)
+        rk[np.isclose(rk, 0)] = 1e-8
       broadening = np.exp(-0.5*((t_meV**2)*(sigma**2)))
 
       # Emission
@@ -341,18 +337,32 @@ class Photoluminescence(ReadFiles):
       # Absorption
       rho_k_t = np.array([np.exp(1j*t_meV*Ek_es[k])*np.tanh(rk[k]) for k in range(len(Sk))])
       L_k_t = np.array([(1 - np.tanh(rk[k]))*((np.tanh(rk[k]) - rho_k_t[k])/((1 - rho_k_t[k])*np.tanh(rk[k]))) for k in range(len(Sk))])
-      Sk_abs = Sk*((np.cosh(rk) + np.sinh(rk))**2)
+      Sk_abs = Sk*np.exp(2*rk)
       ln_G = np.array([np.log(np.cosh(rk[k])) + 0.5*np.log(1 - rho_k_t[k]**2) + Sk_abs[k]*L_k_t[k] for k in range(len(Sk))])
       G_t_absorption = broadening*np.exp(-np.sum(ln_G, axis=0))
       
       return rk, G_t_emission, G_t_absorption
-      
+  
+  def spectral_function_distorted(self, Sk, rk, Ek_gs, Ek_es, sigma):
+     
+     Emax = max(Ek_gs.max(), Ek_es.max())
+     E_meV_positive = np.linspace(0, 1.5*Emax, num = 1500)
+     
+     # Emission
+     nk_mean_emission = Sk + np.sinh(rk)**2
+     S_E_emission = np.array([np.dot(nk_mean_emission,self.Gaussian(i,Ek_gs,sigma)) for i in E_meV_positive])
+
+     # Absorption
+     nk_mean_absorption = Sk*np.exp(2*rk) + np.sinh(rk)**2
+     S_E_absorption = np.array([np.dot(nk_mean_absorption,self.Gaussian(i,Ek_es,sigma)) for i in E_meV_positive])
+
+     return nk_mean_emission, nk_mean_absorption, E_meV_positive, S_E_emission, S_E_absorption
 
       
 
   def OpticalSpectralFunction(self, G_t, t_meV, zpl, gamma):
     
-    E_meV = np.linspace(zpl - 600, zpl + 600, 2000)
+    E_meV = np.linspace(zpl - 1000, zpl + 1000, 2000)
 
     A_E = []
 
@@ -384,8 +394,8 @@ class Photoluminescence(ReadFiles):
     """
     Calculates the normalized photoluminescence (PL), L(E)
     """
-    A_E = A_E[(E_meV >= (zpl - 600)) & (E_meV <= (zpl + 600))]
-    E_meV = E_meV[(E_meV >= (zpl - 600)) & (E_meV <= (zpl + 600))]
+    # A_E = A_E[(E_meV >= (zpl - 600)) & (E_meV <= (zpl + 600))]
+    # E_meV = E_meV[(E_meV >= (zpl - 600)) & (E_meV <= (zpl + 600))]
     if absorption:
         L_E = (E_meV)*np.real(A_E)
         L_E /= np.trapezoid(L_E, E_meV)
@@ -403,13 +413,14 @@ class Photoluminescence(ReadFiles):
     IPR = 1/np.einsum("ij -> i", p**2)
     return IPR
   
-  def anharmonic_coefficients(self,  F_es, F_gs, modes, Ek, qk):
+  @staticmethod
+  def anharmonic_coefficients(F_es, F_gs, modes, masses, wk, qk):
      """
      Calculates the lamba_k from U = 1/2(wk**2)Q**2 + lambda_k(q**3) 
      """
      F_diff = (F_es - F_gs)*1000
-     Fk = np.array([np.sum(modes[k]*F_diff) for k in range(modes.shape[0])])
-     lam_k = (Fk - (Ek**2/self.hbar**2)*qk)/(3*(qk**2))
+     Fk = np.array([np.dot(1/np.sqrt(masses),np.sum(modes[k]*F_diff, axis = 1)) for k in range(len(wk))])
+     lam_k = (Fk - (wk**2)*qk)/(3*(qk**2))
      return lam_k
 
      
@@ -425,7 +436,9 @@ def calculate_spectrum_analytical(
   temperature = 0, # Temperature
   tmax = 2000,  # Upper time limit (fs)
   forces = None, #(os.path.expanduser("./OUTCAR_T"), os.path.expanduser("./OUTCAR_GS")),  # Options: None or tuple (ES file path, GS file path)
-  spinpurification = False # External method dfor spin singlet excited state
+  spinpurification = False, # External method dfor spin singlet excited state
+  forces_npy_format = 0, # 0 - no forces in npy format, 1 - gs in npy format, 2 - es in npy format, 3 - both in npy format.
+  dof_subtract = 3 # Enter number of starting modes to delete from calulation. For example in non linear molecules only 3N-6 modes are considered so dof_subtract = 6.
 ):
 
     """
@@ -445,23 +458,39 @@ def calculate_spectrum_analytical(
       masses, freqs, modes = pl.ReadPhononsVasp(path_phonon_band, atoms_es)
     
     Ek = pl.FreqToEnergy(freqs)
-    modes = modes[3:,...]
-    freqs = freqs[3:]
-    Ek = Ek[3:]
+    modes = modes[dof_subtract:,...]
+    freqs = freqs[dof_subtract:]
+    Ek = Ek[dof_subtract:]
     freqs[freqs < 0.1] = 0.0
     Ek[Ek == 0] = 0.00001
+    wk = 2*np.pi*(Ek/4.13566)/(np.sqrt(9.646)) # sqrt(meV/AMU)*Angstrom
+    results["wk"] = wk
 
     if forces != None:
-      if spinpurification == True:
-        F_es = np.loadtxt(forces[0])
+      if forces_npy_format == 1:
+         F_gs = np.load(forces[1])
+         if spinpurification == True:
+            F_es = np.loadtxt(forces[0])
+         else:
+            F_es = pl.ReadForces(forces[0])
+      elif forces_npy_format == 2:
+         F_es = np.load(forces[0])
+         F_gs = pl.ReadForces(forces[1])
+      elif forces_npy_format == 3:
+         F_gs = np.load(forces[1])
+         F_es = np.load(forces[0])
       else:
-        F_es = pl.ReadForces(forces[0])
+        if spinpurification == True:
+          F_es = np.loadtxt(forces[0])
+        else:
+          F_es = pl.ReadForces(forces[0])
+        F_gs = pl.ReadForces(forces[1])
       results["F_es"] = F_es
-      F_gs = pl.ReadForces(forces[1])
       results["F_gs"] = F_gs
       qk = pl.ConfigCoordinatesF(masses, F_es, F_gs, modes, Ek)
     else:
       qk = pl.ConfigCoordinates(masses, R_es, R_gs, modes)
+    
 
     Sk = pl.PartialHR(freqs, qk)
 
@@ -526,12 +555,13 @@ def calculate_spectrum_analytical_distorted(
       t_meV, 
       zpl,
       gamma,
-      sigma      
+      sigma,
+      rk_init = None      
 ):
    results = {}
    pl = Photoluminescence()
 
-   rk, G_t_emission, G_t_absorption = pl.generating_function_distorted(Sk, Ek_gs, Ek_es, t_meV, sigma)
+   rk, G_t_emission, G_t_absorption = pl.generating_function_distorted(Sk, Ek_gs, Ek_es, t_meV, sigma, rk_init)
    
    E_meV_emission, A_E_emission = pl.OpticalSpectralFunction(G_t_emission, t_meV, zpl, gamma)
    E_meV_absorption, A_E_absorption = pl.OpticalSpectralFunction(G_t_absorption, t_meV, zpl, gamma)
@@ -541,10 +571,17 @@ def calculate_spectrum_analytical_distorted(
    
    t_fs = pl.TimeScaling(t_meV, reverse = True)
 
+   nk_mean_emission, nk_mean_absorption, E_meV_positive, S_E_emission, S_E_absorption = pl.spectral_function_distorted(Sk, rk, Ek_gs, Ek_es, sigma)
+
    results["rk"] = rk
    results["t_fs"] = t_fs
    results["G_t_emission"] = G_t_emission
    results["G_t_absorption"] = G_t_absorption
+   results["nk_mean_emission"] = nk_mean_emission
+   results["nk_mean_absorption"] = nk_mean_absorption
+   results["E_meV_positive"] = E_meV_positive
+   results["S_E_emission"] = S_E_emission
+   results["S_E_absorption"] = S_E_absorption
    results["E_meV_emission"] = E_meV_emission
    results["E_meV_absorption"] = E_meV_absorption
    results["A_E_emission"] = A_E_emission
